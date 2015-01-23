@@ -6,6 +6,8 @@ import re
 import os
 import sys
 
+from functools import reduce
+
 try:
     import Crypto
 except ImportError:
@@ -21,11 +23,12 @@ class ReseedRequired (Exception): pass
 
 
 def bytes2long (b):
-    num = 0
-
-    for exp, c in enumerate(b):
-        num += c * 2**(8 * (len(b) - exp - 1))
-
+    if PY3:
+        num = int.from_bytes(b, 'big')
+    else:
+        length = len(b) - 1
+        num = sum(c * 256**(length - exp) for exp, c in enumerate(b))
+        
     return num
 
 
