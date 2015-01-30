@@ -9,13 +9,22 @@ import sys
 from functools import reduce
 
 try:
-    import Crypto
+    import Crypto.Cipher.AES
+    from Crypto.Util.strxor import strxor
 except ImportError:
     WITH_CRYPTO = False
 
 PY3 = sys.version_info.major == 3
 
+# List of supported hash algorithms.
 DIGESTS = ['sha1', 'sha224', 'sha256', 'sha384', 'sha512']
+
+# Maximum length for entropy input, nonces, personaliation strings
+# and additional input. (in bytes).
+MAX_ENTROPY_LENGTH = 2**21
+
+# Number of generate calls before a reseed is required.
+RESEED_INTERVAL = 2**24
 
 class Error (Exception): pass
 class UnknownAlgorithm (Exception): pass
@@ -41,6 +50,277 @@ def long2bytes (l):
 
     b.reverse()
     return bytes(b)
+
+
+class DRBG (object):
+    ''' Deterministic Random Bit Generator base class.
+
+    :param entropy: A string of random bytes, minimum length is
+                    algorithm specific.
+    :type entropy: :class:`bytes` or :class:`bytearray`.
+    :param data: Optional personalization string.
+    :type data: :class:`bytes` or :class:`bytearray`.
+
+    .. warning:: Supplying the DRBG with poor quality values for `entropy`
+                 or `nonce` will result in low quality output. A good
+                 cross-platform source of randomness is `os.urandom()`.
+    '''
+
+    def __init__ (self, entropy, data=None):
+        if not isinstance(entropy, (bytes, bytearray)):
+            raise TypeError(('Expected bytes or bytearray for entropy'
+                             'got {}').format(type(entropy.__name__)))
+
+        if not data is None and not not isinstance(data, (bytes, bytearray)):
+            raise TypeError(('Expected bytes or bytearray for data'
+                             'got {}').format(type(data.__name__)))
+
+        self.reseed_counter = 1
+
+    def generate (self, count, data=None):
+        ''' Generate the next `count` random bytes.
+
+        :param count: The number of bytes to return.
+        :param data: Optional addition data.
+        :type data: :class:`bytes` or :class:`bytearray`.
+
+        :returns: :class:`bytes`.
+
+        :raises: A :class:`ValueError` is raised if `count` is out of range,
+                 maximum allowed number is algorithm dependent and specified
+                 in SP 800-90A. A :class:`ReseedRequired` is raised if
+                 the generator should be reseeded.
+        '''
+        if not 0 < count < self.max_request_size:
+            raise ValueError('Count out of range.')
+
+        if not data is None and not isinstance(data, (bytes, bytearray)):
+            raise TypeError('Expected bytes or bytearray for data.')
+
+        if not data is None and len(data) > MAX_ENTROPY_LENGTH:
+            raise ValueError('Too much data.')
+
+        if self.reseed_counter > RESEED_INTERVAL:
+            raise ReseedRequired()
+
+        out = self._generate(count, data)
+        self.reseed_counter += 1
+        return out
+
+
+    def reseed (self, entropy, data=None):
+        ''' Reseed the DRBG.
+
+        :param entropy: A string of random bytes, minimum length is
+                        algorithm specific.
+        :type entropy: :class:`bytes` or :class:`bytearray`.
+        :param data: Optional personalization string.
+        :type data: :class:`bytes` or :class:`bytearray`.
+        '''
+        if not isinstance(entropy, (bytes, bytearray)):
+            raise TypeError(('Expected bytes or bytearray for entropy'
+                             'got {}').format(type(entropy.__name__)))
+
+        if not data is None and not not isinstance(data, (bytes, bytearray)):
+            raise TypeError(('Expected bytes or bytearray for data'
+                             'got {}').format(type(data.__name__)))
+
+        self._reseed(entropy, data)
+
+    def _generate (self, count, data):
+        ''' Implementations should override this to return random bytes. '''
+        raise NotImplementedError()
+
+    def _reseed (self, entropy, data=None):
+        ''' Implementations should override this to reseed. '''
+
+
+
+class CTRDRBG (DRBG):
+    ''' DRBG based on a block cipher in counter mode.
+
+    :param name: A string that describes the cipher and key length to use.
+    :type cipher: :class:`str`.
+    :param entropy: Refer to :class:`DRBG`.
+    :param nonce: Refer to :class:`DRBG`.
+
+    The following ciphers are used:
+
+    name  description          alt. name
+    ======  =================  ============
+    tdea    3 key triple des   des, 3des
+    aes128  AES 128 bit        aes, aes-128
+    aes196  AES 196 bit        aes-196
+    aes256  AES 256 bit        aes-256
+    ======  =================  ============
+
+    Contrary to SP 800-90A all ciphers only support their highest security
+    strength setting.
+    '''
+
+    def __init__ (self, name, entropy, data=None):
+        super(CTRDRBG, self).__init__(entropy, data)
+
+        ciphers = {
+            'aes'    : (Crypto.Cipher.AES, 128),
+            'aes128' : (Crypto.Cipher.AES, 128),
+            'aes-128': (Crypto.Cipher.AES, 128),
+            'aes192' : (Crypto.Cipher.AES, 192),
+            'aes-192': (Crypto.Cipher.AES, 192),
+            'aes256' : (Crypto.Cipher.AES, 256),
+            'aes-256': (Crypto.Cipher.AES, 256),
+        }
+
+        if not name.lower() in ciphers:
+            raise ValueError('Unknown cipher: {}'.format(name))
+
+        self.cipher, self.keylen = ciphers[name.lower()]
+        self.is_aes = name.lower().startswith('aes')
+
+        if self.is_aes:
+            self.max_request_size = 2**13   # bytes or 2**16 bits
+            self.outlen = 128
+
+        self.seedlen = (self.outlen + self.keylen) // 8
+
+        if len(entropy) != self.seedlen:
+            raise ValueError('Entropy should be exachtly {} bytes long'.format(
+                             self.seedlen))
+
+        if data:
+            if len(data) > self.seedlen:
+                raise ValueError('Only {} bytes of data supported.'.format(
+                                 self.seedlen))
+
+            delta = len(entropy) - len(data)
+
+            if delta > 0:
+                data = (b'\x00' * delta) + data
+
+            seed_material = strxor(entropy, data)
+        else:
+            seed_material = entropy
+
+        Key = b'\x00' * (self.keylen // 8)
+        V = b'\x00' * (self.outlen // 8)
+        self.__key, self.__V = self.__update(seed_material, Key, V)
+
+    def _generate (self, count, data=None):
+        if data and len(data) > self.seedlen:
+            raise ValueError('Too much data.')
+
+        if data:
+            data += b'\x00' * (self.seedlen - len(data))
+            self.__key, self.__V = self.__update(data, self.__key,
+                                                 self.__V)
+
+        temp = b''
+        K, V = self.__key, self.__V
+
+        while len(temp) < count:
+            V = long2bytes((bytes2long(V) + 1) % 2**self.outlen)
+
+            if len(V) < self.outlen // 8:
+                V = (b'\x00' * (self.outlen // 8 - len(V))) + V
+
+            temp += self.cipher.new(K).encrypt(V)
+
+        self.__key, self.__V = self.__update(data or b'', K, V)
+        return temp[:count]
+
+    def _reseed (self, entropy, data=None):
+        if data and len(data) > self.seedlen:
+            raise ValueError('Too much data.')
+
+        if len(entropy) != self.seedlen:
+            raise ValueError('Too much entropy.')
+
+        if data:
+            data = (b'\x00' * (self.seedlen - len(data))) + data
+            seed_material = strxor(entropy, data)
+        else:
+            seed_material = entropy
+
+        self.__key, self.__V = self.__update(seed_material, self.__key,
+                                             self.__V)
+        self.reseed_counter = 1
+
+    def __update (self, provided_data, Key, V):
+        temp = b''
+
+        while len(temp) < self.seedlen:
+            V = long2bytes((bytes2long(V) + 1) % 2**self.outlen)
+
+            if len(V) < self.outlen // 8:
+                V = b'\x00' * (16 - len(V)) + V
+
+            output_block = self.cipher.new(Key).encrypt(V)
+            temp += output_block
+        
+        temp = temp[:self.seedlen]
+
+        if len(provided_data) < self.seedlen:
+            provided_data = b'\x00' * (self.seedlen - len(provided_data)) + provided_data
+
+        temp = strxor(temp, provided_data)
+        Key = temp[:self.keylen // 8]
+        V = temp[-self.outlen // 8:]
+
+        return Key, V
+
+
+    # def _create_df (self):
+    #     cipher_const = getattrrr(Crypto.Cipher. self.cipher).new
+
+    #     def BCC (key, data):
+    #         assert len(data) % (self.outlen // 8) == 0
+
+    #         bytelen = self.outlen // 8
+    #         chaining_value = b'\00' * bytelen
+    #         cipher = cipher_const(key)
+
+    #         for i in range(0, len(data) // bytelen, bytelen)
+    #             input_block = strxorchaining_value, data[i:i+bytelen]
+    #             chaining_value = cipher.encrypt(input_block)
+
+    #         return chaining_value
+
+
+    #     def df (input_string, no_of_bits_to_return):
+    #         L = len(input_string)
+    #         N = no_of_bits_to_return // 8
+    #         bytelen = self.outlen // 8
+
+    #         S = bytearray((L >> shift) & 0xff for shift in range(3, -1, -1)) +\
+    #             bytearray((N >> shift) & 0xff for shift in range(3, -1, -1)) +\
+    #             input_string + b'\x80'
+
+    #         if len(S) % bytelen > 0:
+    #             S += b'\x00' * (bytelen - len(S) % bytelen)
+
+    #         temp = b'\x00'
+    #         i = 0
+    #         K = bytearray(range(0, 32))[:bytelen]
+
+    #         while len(temp) < (self.keylen + self.outlen) // 8:
+    #             IV = bytearray((i >> shift) & 0xff for shift in range(3, -1, -1)) + \
+    #                 (b'\x00' * (bytelen - 4))
+    #             temp = temp + BCC(K, (IV + S))
+    #             i += 1
+
+    #         K = temp[:self.keylen // 8]
+    #         X = temp[self.keylen // 8:(self.keylen + self.outlen) // 8]
+    #         temp = b'\x00'
+
+    #         while len(temp) < len(no_of_bits_to_return) // 8:
+    #             cipher = Crypto.Cipher.AES.new(K)
+    #             X = cipher.encrypt(X)
+    #             temp += X
+
+    #         return temp[:no_of_bits_to_return // 8]
+
+    #     return df
+
 
 
 class DigestDRBG (object):
