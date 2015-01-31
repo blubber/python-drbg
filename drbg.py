@@ -71,9 +71,9 @@ class DRBG (object):
             raise TypeError(('Expected bytes or bytearray for entropy'
                              'got {}').format(type(entropy.__name__)))
 
-        if not data is None and not not isinstance(data, (bytes, bytearray)):
+        if not data is None and not isinstance(data, (bytes, bytearray)):
             raise TypeError(('Expected bytes or bytearray for data'
-                             'got {}').format(type(data.__name__)))
+                             'got {} ').format(type(data).__name__))
 
         self.reseed_counter = 1
 
@@ -121,9 +121,9 @@ class DRBG (object):
             raise TypeError(('Expected bytes or bytearray for entropy'
                              'got {}').format(type(entropy.__name__)))
 
-        if not data is None and not not isinstance(data, (bytes, bytearray)):
-            raise TypeError(('Expected bytes or bytearray for data'
-                             'got {}').format(type(data.__name__)))
+        if not data is None and not isinstance(data, (bytes, bytearray)):
+            raise TypeError(('Expected bytes or bytearray for data '
+                             'got {}').format(type(data).__name__))
 
         self._reseed(entropy, data)
 
