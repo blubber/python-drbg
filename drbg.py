@@ -40,17 +40,12 @@ def bytes2long (b):
         
     return num
 
-
 def long2bytes (l):
-    b = bytearray()
+    as_hex = hex(l)[2:]
+    if len(as_hex) % 2 != 0:
+        as_hex = '0{}'.format(as_hex)
 
-    while l > 0:
-        b.append(l & 0xff)
-        l >>= 8
-
-    b.reverse()
-    return bytes(b)
-
+    return bytes(bytearray.fromhex(as_hex))
 
 class DRBG (object):
     ''' Deterministic Random Bit Generator base class.
