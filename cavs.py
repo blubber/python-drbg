@@ -1,5 +1,6 @@
 
 import itertools
+import os, os.path
 import re
 import unittest
 
@@ -8,59 +9,54 @@ import drbg
 def readlines (input_file):
     with open(input_file) as fp:
         for lineno, line in enumerate(fp):
-            yield lineno, line.strip()
+            yield lineno, line.strip('\n')
 
 def case_generator (lines, algs):
-    instance = {'calls': []}
-    call = {}
-    base = None
-    count = -1
-
+    case_info = None
+    case = None
+    call = None
+    
     for lineno, line in lines:
-        if len(line) > 3 and line[1:-1] in algs:
-            base = {'alg': line[1:-1]}
-            instance = {'calls': []}
-            call = {}
+        if line == '':
             continue
 
-        if len(line) > 3 and line[0] == '[' and line[-1] == ']':
-            key, value = line[1:-1].split('=')
-            base[key.strip()] = value.strip()
+        matches = re.match(r'^\[([^=]+)(?: =(.*))?\]$', line)
+        if matches:
+            key, value = matches.groups()
+
+            if value is None:
+                case_info = {'alg': key.strip()}
+            else:
+                try:
+                    case_info[key.strip()] = int(value.strip())
+                except:
+                    case_info[key.strip()] = value.strip()
+
             continue
 
         matches = re.match('^COUNT = (\d+)$', line)
         if matches:
-            count = int(matches.group(1))
-            instance['line'] = lineno
-            instance['count'] = count
+            if case:
+                case['calls'] = case['calls'][:-1]
+                yield case
 
-            if count > 0:
-                yield dict(instance, **base)
-
-                instance = {'calls': []}
-                call = {}
-
-            continue
-
-        matches = re.match(r'^\*\* ([^:]+):$', line)
-        if matches:
-            command = matches.group(1)
-            call['call'] = command
-
-            for lineno, line in lines:
-                if line == '':
-                    break
-                elif '=' in line:
-                    key, value = line.split('=')
-                    call[key.strip()] = value.strip()
-
-            instance['calls'].append(call)
             call = {}
-        
-        if '=' in line:
-            key, value = line.split('=')        
-            call[key.strip()] = value.strip()
+            case = dict({
+                'count': int(matches.group(1)),
+                'line': lineno,
+                'calls': [{}]
+            }, **case_info)
             continue
+
+        if line.startswith('**'):
+           case['calls'][-1]['call'] = line[3:-1]
+           case['calls'].append({})
+
+        matches = re.match('^(\s*[^ ]+)\s+=(?: (.*))?$', line)
+        if matches:
+            key, value = matches.groups()
+            idx = -2 if re.match('^\s+', key) else -1
+            case['calls'][idx][key.strip()] = value.strip()
 
 def find_cases (input_file):
     lines = readlines(input_file)
@@ -86,23 +82,48 @@ def find_cases (input_file):
     return data
 
 
-class CTRDRBGTestCase ():
+class DRBGTestCase ():
 
     def fromhex (self, b):
         return bytes(bytearray.fromhex(b))
 
     def compare_state (self, D, call):
+        try:
+            if isinstance(D, drbg.CTRDRBG):
+                return self.compare_ctr_state(D, call)
+            elif isinstance(D, drbg.HashDRBG):
+                return self.compare_hash_state(D, call)
+        except:
+            import pprint
+            pprint.pprint(self.case)
+            pprint.pprint(call)
+            print('')
+            raise
+
+    def compare_ctr_state (self, D, call):
         Key = getattr(D, '_{}__key'.format(type(D).__name__))
         V = getattr(D, '_{}__V'.format(type(D).__name__))
 
         self.assertEqual(Key, self.fromhex(call['Key']))
         self.assertEqual(V, self.fromhex(call['V']))
 
-    def test_ctr_drbg (self):
+    def compare_hash_state (self, D, call):
+        C = getattr(D, '_{}__C'.format(type(D).__name__))
+        V = getattr(D, '_{}__V'.format(type(D).__name__))
+
+        self.assertEqual(C, self.fromhex(call['C']))
+        self.assertEqual(V, self.fromhex(call['V']))
+
+    def test_drbg (self):
         alg = {
             'AES-128 no df': 'aes128',
             'AES-192 no df': 'aes192',
             'AES-256 no df': 'aes256',
+            'SHA-1': 'sha1',
+            'SHA-224': 'sha224',
+            'SHA-256': 'sha256',
+            'SHA-384': 'sha384',
+            'SHA-512': 'sha512'
         }[self.case['alg']]
 
         D = None
@@ -117,7 +138,11 @@ class CTRDRBGTestCase ():
                 if call['PersonalizationString'] != '':
                     data = self.fromhex(call['PersonalizationString'])
 
-                D = drbg.CTRDRBG(alg, entropy, data)
+                if alg.startswith('aes'):
+                    D = drbg.CTRDRBG(alg, entropy, data)
+                else:
+                    nonce = self.fromhex(call['Nonce'])
+                    D = drbg.HashDRBG(alg, entropy, nonce, data)
                 self.compare_state(D, call)
 
             elif call['call'] == 'RESEED':
@@ -136,33 +161,35 @@ class CTRDRBGTestCase ():
                 if call['AdditionalInput'] != '':
                     data = self.fromhex(call['AdditionalInput'])
 
-                out = D.generate(int(case['ReturnedBitsLen']) // 8, data)
+                out = D.generate(int(self.case['ReturnedBitsLen']) // 8, data)
                 self.compare_state(D, call)
 
                 if call.get('ReturnedBits', '') != '':
                     rbits = self.fromhex(call['ReturnedBits'])
                     self.assertEqual(out, rbits)
-       
-        # self.compare_state(D, 0)
 
-        # for n, call in enumerate(self.data['calls'][1:]):
-        #     self.call(D, call)
-        #     self.compare_state(D, n + 1)
+def generate_test_cases (mechs):
+    cases = {}
 
+    for subtype in ['no_reseed', 'pr_false']:
+        path = os.path.join('nist', 'drbgvectors_{}'.format(subtype))
+        files = [os.path.join(path, '{}_DRBG.txt'.format(t))
+                 for t in mechs]
+
+        it = itertools.chain(*[find_cases(f)['cases'] for f in files])
+
+        for case in it:
+            if not re.match('^(AES|SHA)-\d+( no df)?$', case['alg']):
+                continue
+
+            alg = re.sub('[-\s]', '_', case['alg'])
+            name = '{}_{}_{}'.format(alg, subtype, case['line'])
+            
+            cls = type(name, (unittest.TestCase, DRBGTestCase), {'case': case})
+            cases[name] = cls
+
+    return cases
 
 if __name__ == '__main__':
-    pr_false = find_cases('nist/drbgvectors_pr_false/CTR_DRBG.txt')
-    no_reseed = find_cases('nist/drbgvectors_no_reseed/CTR_DRBG.txt')
-
-    for case in itertools.chain(pr_false['cases'], no_reseed['cases']):
-        if not re.match('^AES-\d+ no df$', case['alg']):
-            continue
-
-        name = 'TestCase_{}_{}'.format(case['line'],
-                                       case['alg'].replace(' ', '_').\
-                                       replace('-', '_'))
-        
-        globals()[name] = type(name, (unittest.TestCase, CTRDRBGTestCase), {'case': case})
-
-
+    globals().update(generate_test_cases(['Hash', 'CTR']))
     unittest.main()
