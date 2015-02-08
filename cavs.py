@@ -11,7 +11,7 @@ def readlines (input_file):
         for lineno, line in enumerate(fp):
             yield lineno, line.strip('\n')
 
-def case_generator (lines, algs):
+def case_generator (lines, suffix=''):
     case_info = None
     case = None
     call = None
@@ -25,7 +25,7 @@ def case_generator (lines, algs):
             key, value = matches.groups()
 
             if value is None:
-                case_info = {'alg': key.strip()}
+                case_info = {'alg': '{}{}'.format(key.strip(), suffix)}
             else:
                 try:
                     case_info[key.strip()] = int(value.strip())
@@ -58,7 +58,7 @@ def case_generator (lines, algs):
             idx = -2 if re.match('^\s+', key) else -1
             case['calls'][idx][key.strip()] = value.strip()
 
-def find_cases (input_file):
+def find_cases (input_file, suffix):
     lines = readlines(input_file)
     data = {}
     algs = None
@@ -78,7 +78,7 @@ def find_cases (input_file):
     if algs is None:
         raise RuntimeError('No options string found.')
 
-    data['cases'] = case_generator(lines, algs)
+    data['cases'] = case_generator(lines, suffix)
     return data
 
 
@@ -173,12 +173,14 @@ def generate_test_cases (mechs):
 
     for subtype in ['no_reseed', 'pr_false']:
         path = os.path.join('nist', 'drbgvectors_{}'.format(subtype))
-        files = [os.path.join(path, '{}_DRBG.txt'.format(t))
-                 for t in mechs]
+        iters = []
 
-        it = itertools.chain(*[find_cases(f)['cases'] for f in files])
+        for mech, suffix in mechs:
+            filename = os.path.join(path, '{}_DRBG.txt'.format(mech))
+            it = find_cases(filename, suffix)['cases']
+            iters.append(it)
 
-        for case in it:
+        for case in itertools.chain(*iters):
             if not re.match('^(AES|SHA)-\d+( no df)?$', case['alg']):
                 continue
 
@@ -191,5 +193,10 @@ def generate_test_cases (mechs):
     return cases
 
 if __name__ == '__main__':
-    globals().update(generate_test_cases(['Hash', 'CTR']))
+    mechs = [
+        ('Hash', ''),
+        ('CTR', ''),
+        #('HMAC', 'hmac'),
+    ]
+    globals().update(generate_test_cases(mechs))
     unittest.main()
