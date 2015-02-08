@@ -360,72 +360,88 @@ class DigestDRBG (object):
         return 8 * h().digest_size
 
 
-class HashDRBG (DigestDRBG):
+class HashDRBG (DRBG):
 
-    def __init__ (self, digest, entropy_input, nonce, personalization_string=None):
-        super(HashDRBG, self).__init__(digest, entropy_input, nonce, personalization_string)
-        self.seedlen = 440
+    def __init__ (self, name, entropy, nonce, data=None):
+        if not name in DIGESTS:
+            raise RuntimeError('Unknown digest {}'.format(name))
 
-        self.df = self._create_hash_df(getattr(hashlib, digest))
+        self.digest = getattr(hashlib, name)
+        self.max_request_size = 2**16
 
-        personalization_string = personalization_string or b''
+        self.outlen = 8 * self.digest().digest_size
+        self.seedlen = 888 if self.outlen > 256 else 440
+        self.security_strength = self.outlen // 2
 
-        self.__V = self.df(entropy_input + nonce, self.seedlen)
-        self.__C = self.df(b'\x00' + self.__V, self.seedlen)
+        super(HashDRBG, self).__init__(entropy, data)
 
-
-    def reseed (self, entropy_input, additional_input=None):
-        additional_input = additional_input or b''
-        self.__V = self.df(b'\x01' + self.__V + entropy_input + additional_input, self.seedlen)
-        self.__C = self.df(b'\x00' + self.__V, self.seedlen)
-        self.reseed_counter = 1
+        data = data or b''
+        self.__V = self.__df(entropy + nonce + data, self.seedlen)
+        self.__C = self.__df(b'\x00' + self.__V, self.seedlen)
 
 
-    def generate (self, requested_length, additional_input=None):
-        digest = getattr(hashlib, self.digest)
+    def _reseed (self, entropy, data=None):
+        data = data or b''
+        self.__V = self.__df(b'\x01' + self.__V + entropy + data, self.seedlen)
+        self.__C = self.__df(b'\x00' + self.__V, self.seedlen)
+
+
+    def _generate (self, count, data=None):
+        count_bits = 8 * count
 
         def hashgen (req, V):
-            m = math.ceil(req / self.outlen)
+            m = math.ceil(count_bits / self.outlen)
             data = V
             w = b''
             for i in range(m):
-                w += digest(data).digest()
+                w += self.digest(data).digest()
                 data = long2bytes((bytes2long(data) + 1) % 2**self.seedlen)
-            return w[:(req + 4) // 8]
 
+                if len(data) < self.seedlen // 8:
+                    delta = self.seedlen // 8 - len(data)
+                    data = (b'\x00' * delta) + data
+            return w[:count]
 
-        if not additional_input is None:
-            w = digest(b'\x02' + self.__V + additional_input).digest()
+        if not data is None:
+            w = self.digest(b'\x02' + self.__V + data).digest()
             V = long2bytes((bytes2long(self.__V) + bytes2long(w)) % 2**self.seedlen)
+
+            if len(V) < self.seedlen // 8:
+                delta = self.seedlen // 8 - len(V)
+                V = (b'\x00' * delta) + V
         else:
             V = self.__V
 
-        out = hashgen(requested_length, V)
-        H = digest(b'\x03' + V).digest()
+        out = hashgen(count_bits, V)
+        H = self.digest(b'\x03' + V).digest()
         V = long2bytes((bytes2long(V) + bytes2long(H) + bytes2long(self.__C) + self.reseed_counter) % 2**self.seedlen)
+
+        if len(V) < self.seedlen // 8:
+            delta = self.seedlen // 8 - len(V)
+            V = (b'\x00' * delta) + V
+
         self.__V = V
         return out        
 
-    def _create_hash_df (self, primitive):
+    def __df (self, input_string, output_bitlen):
+        output = b''
+        iterations = math.ceil(output_bitlen / self.outlen)
+        return_bit_count = bytearray([
+            output_bitlen >> 24,
+            (output_bitlen >> 16) & 0xff,
+            (output_bitlen >> 8) & 0xff,
+            output_bitlen & 0xff
+        ])
 
-        def df (input_string, no_of_bits_to_return):
-            output = b''
-            iterations = math.ceil(no_of_bits_to_return / self.outlen)
-            return_bit_count = bytearray([
-                no_of_bits_to_return >> 24,
-                (no_of_bits_to_return >> 16) & 0xff,
-                (no_of_bits_to_return >> 8) & 0xff,
-                no_of_bits_to_return & 0xff
-            ])
+        for counter in range(iterations):
+            data = long2bytes(output_bitlen)
+            if len(data) < 4:
+                data = b'\x00' * (4 - len(data)) + data
 
-            for counter in range(iterations):
-                output += primitive(chr((counter + 1) % 255).encode('utf-8') +
-                                    return_bit_count + input_string).digest()
+            output += self.digest(bytearray([(counter + 1) % 255]) + 
+                                  data + input_string).digest()
 
-            return output[:(no_of_bits_to_return + 4) // 8]
-
-        return df
-
+        return output[:(output_bitlen + 4) // 8]
 
 
 class HMACDRBG (DigestDRBG):
