@@ -317,49 +317,6 @@ class CTRDRBG (DRBG):
     #     return df
 
 
-
-class DigestDRBG (object):
-
-    max_entropy_length = 2**32
-    max_personalization_string_length = 2**32
-    max_additional_input_length = 2**32
-    max_number_of_bits_per_request = 2**19
-    reseed_interval = 2**32
-
-    def __init__ (self, digest, entropy_input, nonce, personalization_string=None):
-        if not digest in DIGESTS:
-            raise ValueError('Unsupported digest {}'.format(digst))
-
-        self.digest = digest
-
-        if not isinstance(entropy_input, (bytes, bytearray)):
-            raise TypeError('entropy_input: expected bytes or bytearray.')
-
-        if not isinstance(nonce, (bytes, bytearray)):
-            raise TypeError('nonce: expected bytes or bytearray.')
-
-        if not personalization_string is None and \
-                not isinstance(personalization_string, (bytes, bytearray)):
-            raise TypeError('personalization_string: expected bytes or bytearray.')
-
-        if not self.security_strength <= 8 * len(entropy_input) <= self.max_entropy_length:
-            raise Error('Entropy length invalid.')
-
-        if personalization_string and 8 * len(personalization_string) > self.max_personalization_string_length:
-            raise Error('Personalization string too long')
-
-        self.reseed_counter = 1
-
-    @property
-    def security_strength (self):
-        return self.outlen // 2
-
-    @property
-    def outlen (self):
-        h = getattr(hashlib, self.digest)
-        return 8 * h().digest_size
-
-
 class HashDRBG (DRBG):
 
     def __init__ (self, name, entropy, nonce, data=None):
