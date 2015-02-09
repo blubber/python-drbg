@@ -89,7 +89,7 @@ class DRBGTestCase ():
 
     def compare_state (self, D, call):
         try:
-            if isinstance(D, drbg.CTRDRBG):
+            if isinstance(D, (drbg.CTRDRBG, drbg.HMACDRBG)):
                 return self.compare_ctr_state(D, call)
             elif isinstance(D, drbg.HashDRBG):
                 return self.compare_hash_state(D, call)
@@ -123,7 +123,12 @@ class DRBGTestCase ():
             'SHA-224': 'sha224',
             'SHA-256': 'sha256',
             'SHA-384': 'sha384',
-            'SHA-512': 'sha512'
+            'SHA-512': 'sha512',
+            'SHA-1hmac': 'sha1hmac',
+            'SHA-224hmac': 'sha224hmac',
+            'SHA-256hmac': 'sha256hmac',
+            'SHA-384hmac': 'sha384hmac',
+            'SHA-512hmac': 'sha512hmac',
         }[self.case['alg']]
 
         D = None
@@ -142,7 +147,11 @@ class DRBGTestCase ():
                     D = drbg.CTRDRBG(alg, entropy, data)
                 else:
                     nonce = self.fromhex(call['Nonce'])
-                    D = drbg.HashDRBG(alg, entropy, nonce, data)
+
+                    if alg.endswith('hmac'):
+                        D = drbg.HMACDRBG(alg, entropy, nonce, data)
+                    else:
+                        D = drbg.HashDRBG(alg, entropy, nonce, data)
                 self.compare_state(D, call)
 
             elif call['call'] == 'RESEED':
@@ -181,7 +190,7 @@ def generate_test_cases (mechs):
             iters.append(it)
 
         for case in itertools.chain(*iters):
-            if not re.match('^(AES|SHA)-\d+( no df)?$', case['alg']):
+            if not re.match('^(AES|SHA)-\d+( no df|hmac)?$', case['alg']):
                 continue
 
             alg = re.sub('[-\s]', '_', case['alg'])
@@ -196,7 +205,7 @@ if __name__ == '__main__':
     mechs = [
         ('Hash', ''),
         ('CTR', ''),
-        #('HMAC', 'hmac'),
+        ('HMAC', 'hmac'),
     ]
     globals().update(generate_test_cases(mechs))
     unittest.main()
