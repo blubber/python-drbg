@@ -121,6 +121,7 @@ class DRBG (object):
                              'got {}').format(type(data).__name__))
 
         self._reseed(entropy, data)
+        self.reseed_counter = 1
 
     def _generate (self, count, data):
         ''' Implementations should override this to return random bytes. '''
@@ -238,7 +239,6 @@ class CTRDRBG (DRBG):
 
         self.__key, self.__V = self.__update(seed_material, self.__key,
                                              self.__V)
-        self.reseed_counter = 1
 
     def __update (self, provided_data, Key, V):
         temp = b''
@@ -444,46 +444,61 @@ class HashDRBG (DRBG):
         return output[:(output_bitlen + 4) // 8]
 
 
-class HMACDRBG (DigestDRBG):
+class HMACDRBG (DRBG):
 
-    def __init__ (self, digest, entropy_input, nonce, personalization_string=None):        
-        super(HMACDRBG, self).__init__(digest, entropy_input, nonce, personalization_string)
+    def __init__ (self, name, entropy, nonce, data=None):
+        if name.endswith('hmac'):
+            name = name[:-4]
+
+        if not name in DIGESTS:
+            raise RuntimeError('Unknown digest {}'.format(name))
+
+        self.digest = getattr(hashlib, name)
+        self.max_request_size = 2**16
+
+        self.outlen = 8 * self.digest().digest_size
+        self.seedlen = 888 if self.outlen > 256 else 440
+        self.security_strength = self.outlen // 2
+
+        super(HMACDRBG, self).__init__(entropy, data)
 
         outlen = self.outlen // 8
-        self.__key, self.__V = self.update(b'\0' * outlen, b'\x01' * outlen,
-                                           entropy_input, nonce,
-                                           personalization_string)
+        self.__key, self.__V = self.__update(b'\0' * outlen, b'\x01' * outlen,
+                                             entropy, nonce, data)
 
 
-    def generate (self, requested_length, additional_input=None):
-        requested_length = (requested_length + 4) // 8
-
-        K, V = self.update(self.__key, self.__V, additional_input)
+    def _generate (self, count, data=None):
+        if data:
+            K, V = self.__update(self.__key, self.__V, data)
+        else:
+            K, V = self.__key, self.__V
+        
         out = b''
 
-        while len(out) < requested_length:
+        while len(out) < count:
             V = self._mac(K, V)
             out += V
 
-        self.reseed_counter += 1
-        return out[:requested_length]
+        self.__key, self.__V = self.__update(K, V, data)
+
+        return out[:count]
 
 
-    def update (self, K, V, *provided_input):
-        K = self._mac(K, V, b'\x00', *provided_input)
+    def __update (self, K, V, *data):
+        data = [_ for _ in data if _]
+
+        K = self._mac(K, V, b'\x00', *data)
         V = self._mac(K, V)
 
-        if provided_input:
-            K = self._mac(K, V, b'\x01', *provided_input)
+        if data:
+            K = self._mac(K, V, b'\x01', *data)
             V = self._mac(K, V)
 
         return K, V
 
 
     def reseed (self, entropy_input, additional_input=None):
-        self.__key, self.__V = self.update(self.__key, self.__V, entropy_input, additional_input)
-        self.reseed_counter = 1
-
+        self.__key, self.__V = self.__update(self.__key, self.__V, entropy_input, additional_input)
 
     def _mac (self, K, V, *Vs):
         value = V + b''.join(v for v in Vs if v is not None)
