@@ -9,7 +9,7 @@ import drbg
 def readlines (input_file):
     with open(input_file) as fp:
         for lineno, line in enumerate(fp):
-            yield lineno, line.strip('\n')
+            yield lineno, line.strip('\r\n')
 
 def case_generator (lines, suffix=''):
     case_info = None
