@@ -390,13 +390,6 @@ class HashDRBG (DRBG):
         output = b''
         iterations = int(math.ceil(output_bitlen / float(self.outlen)))
 
-        return_bit_count = bytearray([
-            output_bitlen >> 24,
-            (output_bitlen >> 16) & 0xff,
-            (output_bitlen >> 8) & 0xff,
-            output_bitlen & 0xff
-        ])
-
         for counter in range(iterations):
             data = long2bytes(output_bitlen)
             if len(data) < 4:
