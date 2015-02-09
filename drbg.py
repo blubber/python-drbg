@@ -38,7 +38,7 @@ def bytes2long (b):
         if isinstance(b, bytes):
             b = bytearray(b)
         length = len(b) - 1
-        num = sum(_ * 255**(length - exp) for exp, _ in enumerate(b))
+        num = sum(_ * 256**(length - exp) for exp, _ in enumerate(b))
         
     return num
 
@@ -353,7 +353,7 @@ class HashDRBG (DRBG):
         count_bits = 8 * count
 
         def hashgen (req, V):
-            m = math.ceil(count_bits / self.outlen)
+            m = int(math.ceil(count_bits / float(self.outlen)))
             data = V
             w = b''
             for i in range(m):
@@ -388,7 +388,8 @@ class HashDRBG (DRBG):
 
     def __df (self, input_string, output_bitlen):
         output = b''
-        iterations = int(math.ceil(output_bitlen / self.outlen))
+        iterations = int(math.ceil(output_bitlen / float(self.outlen)))
+
         return_bit_count = bytearray([
             output_bitlen >> 24,
             (output_bitlen >> 16) & 0xff,
