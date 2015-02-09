@@ -388,7 +388,7 @@ class HashDRBG (DRBG):
 
     def __df (self, input_string, output_bitlen):
         output = b''
-        iterations = math.ceil(output_bitlen / self.outlen)
+        iterations = int(math.ceil(output_bitlen / self.outlen))
         return_bit_count = bytearray([
             output_bitlen >> 24,
             (output_bitlen >> 16) & 0xff,
