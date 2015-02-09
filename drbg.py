@@ -35,13 +35,19 @@ def bytes2long (b):
     if PY3:
         num = int.from_bytes(b, 'big')
     else:
+        if isinstance(b, bytes):
+            b = bytearray(b)
         length = len(b) - 1
-        num = sum(c * 256**(length - exp) for exp, c in enumerate(b))
+        num = sum(_ * 255**(length - exp) for exp, _ in enumerate(b))
         
     return num
 
 def long2bytes (l):
     as_hex = hex(l)[2:]
+
+    if as_hex[-1] == 'L':
+        as_hex = as_hex[:-1]
+        
     if len(as_hex) % 2 != 0:
         as_hex = '0{}'.format(as_hex)
 
