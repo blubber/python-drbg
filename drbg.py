@@ -25,7 +25,7 @@ CIPHERS = ['aes128', 'aes192', 'aes256']
 MAX_ENTROPY_LENGTH = 2**21
 
 # Number of generate calls before a reseed is required.
-RESEED_INTERVAL = 2**24
+RESEED_INTERVAL = 2 # 2**24
 
 
 class Error (Exception):
@@ -73,6 +73,59 @@ def bytepad(b, L):
         delta = L - len(b)
         b = (b'\x00' * delta) + b
     return b
+
+
+class RandomByteGenerator (object):
+    ''' High level wrapper for DRBG classes.
+
+    :param drbg: The DRBG to use for generating random bytes.
+    :type drbg: :class:`DRBG`.
+
+    Objects of this class automatically reseed the underlying DRBG when
+    required. The DRBG is reseeded with 32 bytes from the system random
+    number generator.
+    '''
+
+    def __init__(self, drbg):
+        self.drbg = drbg
+        self._buf = b''
+        self._buf_index = 0
+
+    def generate (self, count=None):
+        ''' Returns `count` random bytes, if `count` is None then
+            the `outlen` number of bytes are returned.
+
+        :param count: The number of bytes to return.
+        '''
+        if count is None:
+            count = self.drbg.outlen // 8
+        return self._get_bytes(count)
+
+    def _get_bytes (self, count):
+        buf = b''
+        max_request = self.drbg.max_request_size
+
+        while count > 0:
+            count_ = max_request if count > max_request else count
+            try:
+                buf += self.drbg.generate(count_)
+            except ReseedRequired:
+                self.drbg.reseed(os.urandom(32))
+            else:
+                count -= count_
+
+        return buf
+
+    def __next__ (self):
+        if self._buf_index == 0:
+            self._buf = self.generate()
+            self._buf_index = len(self._buf)
+        self._buf_index -= 1
+        return self._buf[self._buf_index]
+
+    def __iter__ (self):
+        return self
+
 
 
 class DRBG (object):
@@ -191,8 +244,6 @@ class CTRDRBG (DRBG):
             self.cipher = Crypto.Cipher.AES
             self.keylen = int(name[3:])
             self.is_aes = True
-
-        if self.is_aes:
             self.max_request_size = 2**13   # bytes or 2**16 bits
             self.outlen = 128
 
