@@ -56,6 +56,13 @@ def long2bytes (l):
     else:
         return bytes(bytearray.fromhex(as_hex))
 
+def bytepad (b, L):
+    ''' Pad `b` to length `L` by prepending \x00's '''
+    if len(b) < L:
+        delta = L - len(b)
+        b = (b'\x00' * delta) + b
+    return b
+
 class DRBG (object):
     ''' Deterministic Random Bit Generator base class.
 
@@ -241,8 +248,7 @@ class CTRDRBG (DRBG):
             raise ValueError('Too much entropy.')
 
         if data:
-            data = (b'\x00' * (self.seedlen - len(data))) + data
-            seed_material = strxor(entropy, data)
+            seed_material = strxor(entropy, bytepad(data, self.seedlen))
         else:
             seed_material = entropy
 
@@ -255,18 +261,10 @@ class CTRDRBG (DRBG):
 
         while len(temp) < self.seedlen:
             V = long2bytes((bytes2long(V) + 1) % 2**self.outlen)
-
-            if len(V) < self.outlen // 8:
-                V = b'\x00' * (16 - len(V)) + V
-
-            temp += cipher.encrypt(V)
+            temp += cipher.encrypt(bytepad(V, self.outlen // 8))
         
-        temp = temp[:self.seedlen]
-
-        if len(provided_data) < self.seedlen:
-            provided_data = b'\x00' * (self.seedlen - len(provided_data)) + provided_data
-
-        temp = strxor(temp, provided_data)
+        temp = strxor(temp[:self.seedlen],
+                      bytepad(provided_data, self.seedlen))
         Key = temp[:self.keylen // 8]
         V = temp[-self.outlen // 8:]
 
@@ -360,12 +358,9 @@ class HashDRBG (DRBG):
             data = V
             w = b''
             for i in range(m):
-                w += self.digest(data).digest()
+                w += self.digest(bytepad(data, self.seedlen // 8)).digest()
                 data = long2bytes((bytes2long(data) + 1) % 2**self.seedlen)
 
-                if len(data) < self.seedlen // 8:
-                    delta = self.seedlen // 8 - len(data)
-                    data = (b'\x00' * delta) + data
             return w[:count]
 
         if not data is None:
@@ -394,10 +389,7 @@ class HashDRBG (DRBG):
         iterations = int(math.ceil(output_bitlen / float(self.outlen)))
 
         for counter in range(iterations):
-            data = long2bytes(output_bitlen)
-            if len(data) < 4:
-                data = b'\x00' * (4 - len(data)) + data
-
+            data = bytepad(long2bytes(output_bitlen), 4)
             output += self.digest(bytearray([(counter + 1) % 255]) + 
                                   data + input_string).digest()
 
