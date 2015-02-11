@@ -17,6 +17,9 @@ PY3 = sys.version_info.major == 3
 # List of supported hash algorithms.
 DIGESTS = ['sha1', 'sha224', 'sha256', 'sha384', 'sha512']
 
+# List of supported ciphers for CTR_DRBG
+CIPHERS = ['aes128', 'aes192', 'aes256']
+
 # Maximum length for entropy input, nonces, personaliation strings
 # and additional input. (in bytes).
 MAX_ENTROPY_LENGTH = 2**21
@@ -179,22 +182,15 @@ class CTRDRBG (DRBG):
 
     def __init__(self, name, entropy, data=None):
         super(CTRDRBG, self).__init__(entropy, data)
+        name = name.lower()
 
-        ciphers = {
-            'aes': (Crypto.Cipher.AES, 128),
-            'aes128': (Crypto.Cipher.AES, 128),
-            'aes-128': (Crypto.Cipher.AES, 128),
-            'aes192': (Crypto.Cipher.AES, 192),
-            'aes-192': (Crypto.Cipher.AES, 192),
-            'aes256': (Crypto.Cipher.AES, 256),
-            'aes-256': (Crypto.Cipher.AES, 256),
-        }
-
-        if not name.lower() in ciphers:
+        if name not in CIPHERS:
             raise ValueError('Unknown cipher: {}'.format(name))
 
-        self.cipher, self.keylen = ciphers[name.lower()]
-        self.is_aes = name.lower().startswith('aes')
+        if name.startswith('aes'):
+            self.cipher = Crypto.Cipher.AES
+            self.keylen = int(name[3:])
+            self.is_aes = True
 
         if self.is_aes:
             self.max_request_size = 2**13   # bytes or 2**16 bits
