@@ -14,6 +14,15 @@ except ImportError:
 
 PY3 = sys.version_info.major == 3
 
+RE_NAME = re.compile(
+    r'''
+    ^(
+        (sha)(?:-?(1|224|256|384|512))?(hmac)?
+        |
+        (aes)(128|192|256)?
+    )$
+    ''', re.I | re.U | re.X)
+
 # List of supported hash algorithms.
 DIGESTS = ['sha1', 'sha224', 'sha256', 'sha384', 'sha512']
 
@@ -25,7 +34,7 @@ CIPHERS = ['aes128', 'aes192', 'aes256']
 MAX_ENTROPY_LENGTH = 2**21
 
 # Number of generate calls before a reseed is required.
-RESEED_INTERVAL = 2 # 2**24
+RESEED_INTERVAL = 2**24
 
 
 class Error (Exception):
@@ -75,6 +84,34 @@ def bytepad(b, L):
     return b
 
 
+def new(name='sha512'):
+    ''' Returns a new DRBG.
+
+    :param name: Describes the DRBG to create, if not specified
+                 a SHA-512 based HashDRBG is returned.
+
+    '''
+    matches = RE_NAME.match(name.lower().strip())
+
+    if not matches:
+        raise RuntimeError('Unknown mechanism {}'.format(name))
+
+    _, digest, dlen, hmac_, cipher, clen = matches.groups()
+
+    if digest:
+        digest_name = 'sha{}'.format(dlen or '512')
+        cls = HMACDRBG if hmac_ else HashDRBG
+        entropy = os.urandom(32)
+        nonce = os.urandom(16)
+        drbg = cls(digest_name, entropy, nonce)
+    else:
+        ciphher_name = '{}{}'.format(cipher, clen or '128')
+        entropy = os.urandom(32)
+        drbg = CTRDRBG(ciphher_name, entropy)
+
+    return RandomByteGenerator(drbg)
+
+
 class RandomByteGenerator (object):
     ''' High level wrapper for DRBG classes.
 
@@ -91,7 +128,7 @@ class RandomByteGenerator (object):
         self._buf = b''
         self._buf_index = 0
 
-    def generate (self, count=None):
+    def generate(self, count=None):
         ''' Returns `count` random bytes, if `count` is None then
             the `outlen` number of bytes are returned.
 
@@ -101,7 +138,7 @@ class RandomByteGenerator (object):
             count = self.drbg.outlen // 8
         return self._get_bytes(count)
 
-    def _get_bytes (self, count):
+    def _get_bytes(self, count):
         buf = b''
         max_request = self.drbg.max_request_size
 
@@ -116,16 +153,15 @@ class RandomByteGenerator (object):
 
         return buf
 
-    def __next__ (self):
+    def __next__(self):
         if self._buf_index == 0:
             self._buf = self.generate()
             self._buf_index = len(self._buf)
         self._buf_index -= 1
         return self._buf[self._buf_index]
 
-    def __iter__ (self):
+    def __iter__(self):
         return self
-
 
 
 class DRBG (object):
@@ -509,26 +545,3 @@ class HMACDRBG (DRBG):
         value = V + b''.join(v for v in Vs if v is not None)
         mac = hmac.new(K, value, digestmod=self.digest)
         return mac.digest()
-
-
-def new (name, personalization_string=None):
-    entropy = os.urandom(128)
-    nonce = os.urandom(128)
-    drbg = None
-
-    matches = re.match('(sha[0-9]{1,3})(hmac)?', name.lower())
-
-    if matches:
-        digest = matches.group(1)
-        use_hmac = not matches.group(2) is None
-
-        if digest not in DIGESTS:
-            raise ValueError('Unsupported digest {}'.format(digest))
-
-        if use_hmac:
-            drbg = HMACDRBG(digest, entropy, nonce, personalization_string)
-
-    return drbg
-
-
-
