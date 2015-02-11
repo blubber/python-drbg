@@ -251,6 +251,7 @@ class CTRDRBG (DRBG):
 
     def __update (self, provided_data, Key, V):
         temp = b''
+        cipher = self.cipher.new(Key)
 
         while len(temp) < self.seedlen:
             V = long2bytes((bytes2long(V) + 1) % 2**self.outlen)
@@ -258,8 +259,7 @@ class CTRDRBG (DRBG):
             if len(V) < self.outlen // 8:
                 V = b'\x00' * (16 - len(V)) + V
 
-            output_block = self.cipher.new(Key).encrypt(V)
-            temp += output_block
+            temp += cipher.encrypt(V)
         
         temp = temp[:self.seedlen]
 
