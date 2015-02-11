@@ -51,7 +51,10 @@ def long2bytes (l):
     if len(as_hex) % 2 != 0:
         as_hex = '0{}'.format(as_hex)
 
-    return bytes(bytearray.fromhex(as_hex))
+    if PY3:
+        return bytes.fromhex(as_hex)
+    else:
+        return bytes(bytearray.fromhex(as_hex))
 
 class DRBG (object):
     ''' Deterministic Random Bit Generator base class.
