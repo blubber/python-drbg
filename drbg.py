@@ -90,7 +90,9 @@ def new(name='sha512'):
 
     :param name: Describes the DRBG to create, if not specified
                  a SHA-512 based HashDRBG is returned.
+    :returns: :class:`drbg.RandomByteGenerator`
 
+    The DRBG is seeded with data from :func:`os.urandom`.
     '''
     matches = RE_NAME.match(name.lower().strip())
 
@@ -122,7 +124,7 @@ class RandomByteGenerator (object):
     ''' High level wrapper for DRBG classes.
 
     :param drbg: The DRBG to use for generating random bytes.
-    :type drbg: :class:`DRBG`.
+    :type drbg: :class:`drbg.DRBG`
 
     Objects of this class automatically reseed the underlying DRBG when
     required. The DRBG is reseeded with 32 bytes from the system random
@@ -135,10 +137,10 @@ class RandomByteGenerator (object):
         self._buf_index = 0
 
     def generate(self, count=None):
-        ''' Returns `count` random bytes, if `count` is None then
-            the `outlen` number of bytes are returned.
+        ''' Returns `count` random bytes.
 
-        :param count: The number of bytes to return.
+        :param count: Optional number of **bytes** to return, defaults to
+                      the underlying :class:`drbg.DRBG`\ 's `outlen`.
         '''
         if count is None:
             count = self.drbg.outlen // 8
@@ -175,13 +177,13 @@ class DRBG (object):
 
     :param entropy: A string of random bytes, minimum length is
                     algorithm specific.
-    :type entropy: :class:`bytes` or :class:`bytearray`.
+    :type entropy: :class:`bytes` or :class:`bytearray`
     :param data: Optional personalization string.
-    :type data: :class:`bytes` or :class:`bytearray`.
+    :type data: :class:`bytes` or :class:`bytearray`
 
     .. warning:: Supplying the DRBG with poor quality values for `entropy`
-                 or `nonce` will result in low quality output. A good
-                 cross-platform source of randomness is `os.urandom()`.
+                 might result in low quality output. A good cross-platform
+                 source of randomness is `os.urandom()`.
     '''
 
     def __init__(self, entropy, data=None):
@@ -254,25 +256,12 @@ class DRBG (object):
 
 
 class CTRDRBG (DRBG):
-    ''' DRBG based on a block cipher in counter mode.
+    ''' Implements the CTR_DRBG mechanism, which is based on a block cipher.
 
     :param name: A string that describes the cipher and key length to use.
-    :type cipher: :class:`str`.
+    :type cipher: :class:`str`
     :param entropy: Refer to :class:`DRBG`.
-    :param nonce: Refer to :class:`DRBG`.
-
-    The following ciphers are used:
-
-    name  description          alt. name
-    ======  =================  ============
-    tdea    3 key triple des   des, 3des
-    aes128  AES 128 bit        aes, aes-128
-    aes196  AES 196 bit        aes-196
-    aes256  AES 256 bit        aes-256
-    ======  =================  ============
-
-    Contrary to SP 800-90A all ciphers only support their highest security
-    strength setting.
+    :param data: Refer to :class:`DRBG`.
     '''
 
     def __init__(self, name, entropy, data=None):
