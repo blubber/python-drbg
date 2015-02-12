@@ -116,6 +116,7 @@ class DRBGTestCase ():
 
     def test_drbg (self):
         alg = {
+            '3KeyTDEA no df': 'tdea',
             'AES-128 no df': 'aes128',
             'AES-192 no df': 'aes192',
             'AES-256 no df': 'aes256',
@@ -143,7 +144,7 @@ class DRBGTestCase ():
                 if call['PersonalizationString'] != '':
                     data = self.fromhex(call['PersonalizationString'])
 
-                if alg.startswith('aes'):
+                if alg.startswith('aes') or alg == 'tdea':
                     D = drbg.CTRDRBG(alg, entropy, data)
                 else:
                     nonce = self.fromhex(call['Nonce'])
@@ -190,7 +191,7 @@ def generate_test_cases (mechs):
             iters.append(it)
 
         for case in itertools.chain(*iters):
-            if not re.match('^(AES|SHA)-\d+( no df|hmac)?$', case['alg']):
+            if not re.match('^(3KeyTDEA|(AES|SHA)-\d+)( no df|hmac)?$', case['alg']):
                 continue
 
             alg = re.sub('[-\s]', '_', case['alg'])

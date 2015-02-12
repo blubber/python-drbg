@@ -8,6 +8,7 @@ import sys
 
 try:
     import Crypto.Cipher.AES
+    import Crypto.Cipher.DES3
     from Crypto.Util.strxor import strxor
 except ImportError:
     WITH_CRYPTO = False
@@ -19,7 +20,7 @@ RE_NAME = re.compile(
     ^(
         (sha)(?:-?(1|224|256|384|512))?(hmac)?
         |
-        (aes)(128|192|256)?
+        (aes|tdea|des)(128|192|256)?
     )$
     ''', re.I | re.U | re.X)
 
@@ -27,7 +28,7 @@ RE_NAME = re.compile(
 DIGESTS = ['sha1', 'sha224', 'sha256', 'sha384', 'sha512']
 
 # List of supported ciphers for CTR_DRBG
-CIPHERS = ['aes128', 'aes192', 'aes256']
+CIPHERS = ['tdea', 'aes128', 'aes192', 'aes256']
 
 # Maximum length for entropy input, nonces, personaliation strings
 # and additional input. (in bytes).
@@ -105,9 +106,14 @@ def new(name='sha512'):
         nonce = os.urandom(16)
         drbg = cls(digest_name, entropy, nonce)
     else:
-        ciphher_name = '{}{}'.format(cipher, clen or '128')
-        entropy = os.urandom(32)
-        drbg = CTRDRBG(ciphher_name, entropy)
+        if cipher == 'aes':
+            cipher_name = '{}{}'.format(cipher, clen or '128')
+            entropy = os.urandom(32)
+        else:
+            cipher_name = 'tdea'
+            entropy = os.urandom(29)
+        
+        drbg = CTRDRBG(cipher_name, entropy)
 
     return RandomByteGenerator(drbg)
 
@@ -279,10 +285,15 @@ class CTRDRBG (DRBG):
         if name.startswith('aes'):
             self.cipher = Crypto.Cipher.AES
             self.keylen = int(name[3:])
-            self.is_aes = True
-            self.max_request_size = 2**13   # bytes or 2**16 bits
             self.outlen = 128
+            self.is_aes = True
+        else:
+            self.cipher = Crypto.Cipher.DES3
+            self.keylen = 168
+            self.outlen = 64
+            self.is_aes = False
 
+        self.max_request_size = 2**13   # bytes or 2**16 bits
         self.seedlen = (self.outlen + self.keylen) // 8
 
         if len(entropy) != self.seedlen:
@@ -325,7 +336,7 @@ class CTRDRBG (DRBG):
             if len(V) < self.outlen // 8:
                 V = (b'\x00' * (self.outlen // 8 - len(V))) + V
 
-            temp += self.cipher.new(K).encrypt(V)
+            temp += self.cipher.new(self.__prepare_key(K)).encrypt(V)
 
         self.__key, self.__V = self.__update(data or b'', K, V)
         return temp[:count]
@@ -347,7 +358,7 @@ class CTRDRBG (DRBG):
 
     def __update(self, provided_data, Key, V):
         temp = b''
-        cipher = self.cipher.new(Key)
+        cipher = self.cipher.new(self.__prepare_key(Key))
 
         while len(temp) < self.seedlen:
             V = long2bytes((bytes2long(V) + 1) % 2**self.outlen)
@@ -359,6 +370,22 @@ class CTRDRBG (DRBG):
         V = temp[-self.outlen // 8:]
 
         return Key, V
+
+    def __prepare_key (self, K):
+        ''' Add parity bits if tdea is used. '''
+        if self.is_aes:
+            return K
+
+        new_K = bytearray()
+        long_K = bytes2long(K)
+
+        while long_K > 0:
+            new_K.append((long_K & 0x7f) << 1)
+            long_K >>= 7
+
+        new_K.reverse()
+        return bytepad(bytes(new_K), 192 // 8)
+
 
     # def _create_df (self):
     #     cipher_const = getattrrr(Crypto.Cipher. self.cipher).new
