@@ -110,12 +110,11 @@ def new(name='sha512'):
     else:
         if cipher == 'aes':
             cipher_name = '{}{}'.format(cipher, clen or '128')
-            entropy = os.urandom(32)
         else:
             cipher_name = 'tdea'
-            entropy = os.urandom(29)
         
-        drbg = CTRDRBG(cipher_name, entropy)
+        drbg = CTRDRBG(cipher_name)
+        drbg.init(os.urandom(drbg.seedlen))
 
     return RandomByteGenerator(drbg)
 
