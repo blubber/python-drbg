@@ -175,6 +175,9 @@ class RandomByteGenerator (object):
 class DRBG (object):
     ''' Deterministic Random Bit Generator base class. '''
 
+    def __init__ (self):
+        self._initialized = False
+
     def init (self, entropy, data=None):
         ''' Initialize the DRBG, this method has to be called
         exaclty once prior to generating bytes.
@@ -262,16 +265,16 @@ class DRBG (object):
 
 
 class CTRDRBG (DRBG):
-    ''' Implements the CTR_DRBG mechanism, which is based on a block cipher.
+    ''' The CTR_DRBG mechanism, which is based on a block cipher.
 
-    :param name: A string that describes the cipher and key length to use.
-    :type cipher: :class:`str`
-    :param entropy: Refer to :class:`DRBG`.
-    :param data: Refer to :class:`DRBG`.
+    :param name: The name of the block cipher to use, see
+                 :attribute:`drbg.CIPHERS`.
+
+    Implements the :class:`drbg.DRBG` interface.
     '''
 
-    def __init__(self, name, entropy, data=None):
-        super(CTRDRBG, self).__init__(entropy, data)
+    def __init__(self, name, entropy=None, data=None):
+        super(CTRDRBG, self).__init__()
         name = name.lower()
 
         if name not in CIPHERS:
@@ -291,9 +294,16 @@ class CTRDRBG (DRBG):
         self.max_request_size = 2**13   # bytes or 2**16 bits
         self.seedlen = (self.outlen + self.keylen) // 8
 
+        if entropy:
+            self.init(entropy, data)
+
+
+    def init (self, entropy, data=None):
         if len(entropy) != self.seedlen:
             raise ValueError('Entropy should be exachtly {} bytes long'.format(
                              self.seedlen))
+
+        super(CTRDRBG, self).init(entropy, data)
 
         if data:
             if len(data) > self.seedlen:
@@ -435,8 +445,16 @@ class CTRDRBG (DRBG):
 
 
 class HashDRBG (DRBG):
+    ''' The Hash_DRBG mechanism.
 
-    def __init__(self, name, entropy, nonce, data=None):
+    :param name: The name of the hash algorithm to use.
+
+    Implements the :class:`drbg.DRBG` interface.
+    '''
+
+    def __init__(self, name, entropy=None, nonce=None, data=None):
+        super(HashDRBG, self).__init__()
+
         if name not in DIGESTS:
             raise RuntimeError('Unknown digest {}'.format(name))
 
@@ -447,7 +465,11 @@ class HashDRBG (DRBG):
         self.seedlen = 888 if self.outlen > 256 else 440
         self.security_strength = self.outlen // 2
 
-        super(HashDRBG, self).__init__(entropy, data)
+        if entropy:
+            self.init(entropy, nonce, data)
+
+    def init (self, entropy, nonce, data):
+        super(HashDRBG, self).init(entropy, data)
 
         data = data or b''
         self.__V = self.__df(entropy + nonce + data, self.seedlen)
@@ -510,8 +532,16 @@ class HashDRBG (DRBG):
 
 
 class HMACDRBG (DRBG):
+    ''' The HMAC_DRBG mechanism.
 
-    def __init__(self, name, entropy, nonce, data=None):
+    :param name: The name of the hash algorithm to use.
+
+    Implements the :class:`drbg.DRBG` interface.
+    '''
+
+    def __init__(self, name, entropy=None, nonce=None, data=None):
+        super(HMACDRBG, self).__init__()
+
         if name.endswith('hmac'):
             name = name[:-4]
 
@@ -525,7 +555,11 @@ class HMACDRBG (DRBG):
         self.seedlen = 888 if self.outlen > 256 else 440
         self.security_strength = self.outlen // 2
 
-        super(HMACDRBG, self).__init__(entropy, data)
+        if entropy:
+            self.init(entropy, nonce, data)
+
+    def init(self, entropy, nonce, data):
+        super(HMACDRBG, self).init(entropy, data)
 
         outlen = self.outlen // 8
         self.__key, self.__V = self.__update(b'\0' * outlen, b'\x01' * outlen,
