@@ -57,7 +57,20 @@ NIST SP 800-57.
 +-------------------------+---------------------+--------------------------+
 
 The ``name`` parameter can be used as first argument to :func:`drbg.new` to
-create a specific DRBG.
+create a specific DRBG::
+
+    >>> new('sha256hmac')
+    >>> new('aes256')
+
+Algorithm availability depends on the system and the availability of the Pycrypto
+module. The availability of a specific algorithm can be queried by inspecting
+the following two attributes:
+
+.. autodata:: drbg.DIGESTS
+    :annotation: = [...]
+
+.. autodata:: drbg.CIPHERS
+    :annotation: = [...]
 
 
 API Reference
@@ -92,7 +105,7 @@ Each DRBG mechanism is implemented in a separate class, which all derive
 from the same :class:`drbg.DRBG` baseclass.
 
 .. autoclass:: drbg.DRBG
-    :members: generate, reseed
+    :members: init, generate, reseed
 
 
 .. autoclass:: drbg.CTRDRBG

@@ -10,6 +10,7 @@ try:
     import Crypto.Cipher.AES
     import Crypto.Cipher.DES3
     from Crypto.Util.strxor import strxor
+    WITH_CRYPTO = True
 except ImportError:
     WITH_CRYPTO = False
 
@@ -24,11 +25,12 @@ RE_NAME = re.compile(
     )$
     ''', re.I | re.U | re.X)
 
-# List of supported hash algorithms.
+#: Hash algorithms supported by Hash_DRBG and HMAC_DRBG
 DIGESTS = ['sha1', 'sha224', 'sha256', 'sha384', 'sha512']
 
-# List of supported ciphers for CTR_DRBG
-CIPHERS = ['tdea', 'aes128', 'aes192', 'aes256']
+#: Ciphers support by the CTR_DRBG mechanism.
+CIPHERS = ['tdea', 'aes128', 'aes192', 'aes256'] \
+          if WITH_CRYPTO else []
 
 # Maximum length for entropy input, nonces, personaliation strings
 # and additional input. (in bytes).
@@ -267,7 +269,7 @@ class CTRDRBG (DRBG):
     ''' The CTR_DRBG mechanism, which is based on a block cipher.
 
     :param name: The name of the block cipher to use, see
-                 :attribute:`drbg.CIPHERS`.
+                 :attr:`drbg.CIPHERS`.
 
     Implements the :class:`drbg.DRBG` interface.
     '''
