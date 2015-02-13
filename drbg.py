@@ -173,19 +173,7 @@ class RandomByteGenerator (object):
 
 
 class DRBG (object):
-    ''' Deterministic Random Bit Generator base class.
-
-    :param entropy: See :meth:`drbg.DRBG.init`
-    :type entropy: :class:`bytes` or :class:`bytearray`
-    :param data: See :meth:`drbg.DRBG.init`
-    :type data: :class:`bytes` or :class:`bytearray`
-    '''
-
-    def __init__(self, entropy=None, data=None):
-        self._initialized = False
-
-        if entropy:
-            self.init(entropy, data)
+    ''' Deterministic Random Bit Generator base class. '''
 
     def init (self, entropy, data=None):
         ''' Initialize the DRBG, this method has to be called
