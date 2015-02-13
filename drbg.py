@@ -175,18 +175,35 @@ class RandomByteGenerator (object):
 class DRBG (object):
     ''' Deterministic Random Bit Generator base class.
 
-    :param entropy: A string of random bytes, minimum length is
-                    algorithm specific.
+    :param entropy: See :meth:`drbg.DRBG.init`
     :type entropy: :class:`bytes` or :class:`bytearray`
-    :param data: Optional personalization string.
+    :param data: See :meth:`drbg.DRBG.init`
     :type data: :class:`bytes` or :class:`bytearray`
-
-    .. warning:: Supplying the DRBG with poor quality values for `entropy`
-                 might result in low quality output. A good cross-platform
-                 source of randomness is `os.urandom()`.
     '''
 
-    def __init__(self, entropy, data=None):
+    def __init__(self, entropy=None, data=None):
+        self._initialized = False
+
+        if entropy:
+            self.init(entropy, data)
+
+    def init (self, entropy, data=None):
+        ''' Initialize the DRBG, this method has to be called
+        exaclty once prior to generating bytes.
+
+        :param entropy: A string of random bytes, minimum length is
+                        algorithm specific.
+        :type entropy: :class:`bytes` or :class:`bytearray`
+        :param data: Optional personalization string.
+        :type data: :class:`bytes` or :class:`bytearray`
+
+        .. warning:: Supplying the DRBG with poor quality values for `entropy`
+                     might result in low quality output. A good cross-platform
+                     source of randomness is `os.urandom()`.
+        '''
+        if self._initialized:
+            raise RuntimeError('DRBG already initialized.')
+
         if not isinstance(entropy, (bytes, bytearray)):
             raise TypeError(('Expected bytes or bytearray for entropy'
                              'got {}').format(type(entropy.__name__)))
@@ -196,6 +213,7 @@ class DRBG (object):
                              'got {} ').format(type(data).__name__))
 
         self.reseed_counter = 1
+        self._initialized = True
 
     def generate(self, count, data=None):
         ''' Generate the next `count` random bytes.
