@@ -9,20 +9,25 @@ strong random bytes, it implements NIST SP 800-90A.
 Quickstart
 ----------
 
-Install using pip:
+The easiest way to get started is to simply call :func:`drbg.generate`::
+    
+    >>> import drbg
+    >>> drbg.generate(4)
+    b'\x00(s\xa9'
 
-    $ pip install python-drbg
+This will automaticlly instantiate a global random number generator and
+return the desired number of bytes (or an implementation specific number of
+no arguments are given.)
 
-or, if you prefer not to install Pycrypto:
-
-    $ pip install python-drbg-noctr
-
-All you need to get started::
+A slightly more involved example involves selecting a specific mechanism such
+as ``sha224hmac``::
 
     >>> import drbg
-    >>> d = drbg.new()
+    >>> d = drbg.new('sha224hmac')
     >>> d.generate(5)
     b'\xd2e\x94+\x13'
+
+See below for a complete list of :ref:`table-mechs`.
 
 
 Overview
@@ -37,24 +42,32 @@ Python DRBG offers the following features:
       under suspicions of containing a backdoor.
 
 
+.. _table-mechs:
+
+Supported Mechanisms
+~~~~~~~~~~~~~~~~~~~~
+
 The following table shows all supported mechanisms and algorithms and
 some of their properties. For more information refer to NIST SP 800-90A and
 NIST SP 800-57.
 
-+-------------------------+---------------------+--------------------------+
-| name                    | mechanism           | security strength        | 
-+=========================+=====================+============+=============+
-| ``sha``, ``sha1``,      | Hash_DRBG           | ``digest_size / 2``      |
-| ``sha224``, ``sha256``, |                     |                          |
-| ``sha512``.             |                     |                          |
-+-------------------------+---------------------+--------------------------+
-| ``sha``, ``sha1``,      | HMAC_DRBG           | ``digest_size / 2``      |
-| ``sha224``, ``sha256``, |                     |                          |
-| ``sha512``.             |                     |                          |
-+-------------------------+---------------------+--------------------------+
-| ``aes128``, ``aes192``, | CTR_DRBG            | ``128, 192, 256`` for    |
-| ``aes256``, ``tdea``.   | (requires Pycrypto) | AES and ``168`` for TDEA |
-+-------------------------+---------------------+--------------------------+
++---------------------------+---------------------+--------------------------+
+| name                      | mechanism           | security strength        | 
++===========================+=====================+============+=============+
+| ``sha``, ``sha1``,        | Hash_DRBG           | ``digest_size / 2``      |
+| ``sha224``, ``sha256``,   |                     |                          |
+| ``sha512`` [1]_           |                     |                          |
++---------------------------+---------------------+--------------------------+
+| ``sha``, ``sha1``,        | HMAC_DRBG           | ``digest_size / 2``      |
+| ``sha224``, ``sha256``,   |                     |                          |
+| ``sha512``. [1]_          |                     |                          |
++---------------------------+---------------------+--------------------------+
+| ``aes128``, ``aes192``,   | CTR_DRBG            | ``128, 192, 256`` for    |
+| ``aes256``, ``tdea`` [2]_ |                     | AES and ``168`` for TDEA |
++---------------------------+---------------------+--------------------------+
+
+.. [1] Depends on the hash algorithms available in Pythons builtin ``hashlib`` module.
+.. [2] Depends on the availability of Pycrypto.
 
 The ``name`` parameter can be used as first argument to :func:`drbg.new` to
 create a specific DRBG::
@@ -100,7 +113,7 @@ sequence of random bytes::
 
 
 Low Level
----------
+~~~~~~~~~
 Each DRBG mechanism is implemented in a separate class, which all derive
 from the same :class:`drbg.DRBG` baseclass.
 
