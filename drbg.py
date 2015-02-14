@@ -39,6 +39,8 @@ MAX_ENTROPY_LENGTH = 2**21
 # Number of generate calls before a reseed is required.
 RESEED_INTERVAL = 2**24
 
+__DRBG = None
+
 
 class Error (Exception):
     pass
@@ -86,6 +88,16 @@ def bytepad(b, L):
         b = (b'\x00' * delta) + b
     return b
 
+def generate(count=None):
+    ''' Generate `count` random bytes.
+
+    :param count: The number of bytes to generate, defaults to the
+                  underlying DRBGs configuration.
+    '''
+    global __DRBG
+    if __DRBG is None:
+        __DRBG = new()
+    return __DRBG.generate(count)
 
 def new(name='sha512'):
     ''' Returns a new DRBG.
